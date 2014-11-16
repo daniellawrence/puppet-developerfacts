@@ -1,0 +1,67 @@
+#!/usr/bin/env python
+import os
+import sys
+
+IGNORE_USERS = ('root', )
+
+
+def gather_user_details(username):
+    user = os.popen("getent passwd %s" % username).read().strip()
+    (username, x, uid, gid, gecos, home, shell) = user.split(':')
+    gecos = gecos.split(',')[0]
+    print "local_uid=%s" % uid
+    print "local_gid=%s" % gid
+    print "local_name='%s'" % gecos
+    print "local_home='%s'" % home
+    print "local_shell=%s" % shell
+
+    gather_git_config(home)
+    gather_public_ssh_keys(home)
+
+
+def gather_git_config(home):
+    gitconfig_file = '%s/.gitconfig' % home
+    section = None
+    looking_for_keys = ('email', 'signingkey', 'editor',)
+    for line in open(gitconfig_file).readlines():
+        line = line.strip()
+        if line.startswith('['):
+            line = line.strip('[').strip(']')
+            section = line
+            continue
+        (key, _, value) = line.partition('=')
+        key = key.strip()
+        value = value.strip()
+        if key in looking_for_keys:
+            print "local_%s=%s" % (key, value)
+
+
+def gather_public_ssh_keys(home):
+    ssh_dir = "%s/.ssh" % home
+    for root, dirs, files in os.walk(ssh_dir):
+        for filename in files:
+            if not filename.endswith('.pub'):
+                continue
+            path = "%s/%s" % (root, filename)
+            alias = path.replace(ssh_dir + '/', '').replace('/', '_').replace('.', '_')
+            public_key = open(path).read().strip()
+            print "local_sshkey_%s='%s'" % (alias, public_key)
+
+
+def main():
+    local_user = None
+    for line in os.popen("passwd --all --status").readlines():
+        (username, status) = line.split()[:2]
+        if status != 'P':
+            continue
+        if username in IGNORE_USERS:
+            continue
+        local_user = username
+
+    if not local_user:
+        sys.exit(1)
+    print "local_user=%s" % local_user
+    gather_user_details(local_user)
+
+if __name__ == '__main__':
+    main()
